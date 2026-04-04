@@ -1,45 +1,99 @@
-# Instruções do Agente — Conversor de Questões para Obsidian
+---
+name: obsidian-questoes
+description: >
+  Converte questões de vestibular (PDFs, imagens, Word) em notas estruturadas
+  do Obsidian. Use esta skill quando o usuário enviar arquivos de questões e
+  pedir para converter, processar ou gerar notas .md. Também ative quando o
+  usuário mencionar "banco de questões", "converter questões", "gerar notas"
+  ou qualquer variação de processamento de questões para Obsidian.
+---
 
-## Sua função
+# Agente — Conversor de Questões para Obsidian
 
-Converter listas de exercícios de vestibulares em notas do Obsidian.
+## Objetivo
 
-1. Ler todos os arquivos da pasta `input/`
-2. Extrair as questões de cada arquivo
-3. Gerar uma nota `.md` por questão na pasta `output/`
-4. Extrair/salvar imagens na pasta `output/imagens/`
+Ler arquivos de questões de vestibular da pasta `Input/` e gerar uma nota `.md`
+por questão na pasta `Output/`, seguindo o schema de metadados e as regras de
+formatação definidas nas Skills de referência.
 
-## Antes de processar
+## Entradas esperadas
 
-Pergunte ao usuário no chat:
-1. **Qual o prefixo e número inicial?** (ex: "fis047" → prefixo `fis`, começa em 047)
-2. **Qual a disciplina?** (ex: Fisica, Quimica, Biologia)
+- PDFs, imagens (JPG/PNG) ou documentos Word com questões de vestibulares
+- Prefixo e número inicial informados pelo usuário (ex: `fis047`)
+- Disciplina informada pelo usuário (ex: `Fisica`, `Quimica`)
 
-Se o usuário já informou esses dados na mensagem, não pergunte de novo.
+## Skills de referência — carregar antes de processar
 
-## Estrutura do projeto
+| Situação | Carregar |
+|----------|----------|
+| Conversão padrão | `Skills/SKILL-latex.md` + `Skill/SKILL-checklist.md` |
+| Dúvida sobre metadados | `Skills/SKILL-metadata.md` |
+| Revisão de notas existentes | `Skills/SKILL-checklist.md` |
+
+---
+
+## Passo a passo
+
+### Etapa 0 — Coletar configuração
+
+Se ainda não foram informados, perguntar ao usuário:
+1. **Prefixo e número inicial** — ex: `fis047` (prefixo `fis`, começa em `047`)
+2. **Disciplina** — ex: `Fisica`, `Quimica`, `Biologia`, `Matematica`
+
+Se o usuário já informou na mensagem, não perguntar de novo.
+
+### Etapa 1 — Ler e carregar skills
+
+1. Ler `Skills/SKILL-latex.md` → regras de formatação LaTeX
+2. Ler `Skills/SKILL-checklist.md` → checklist de validação pré-save
+3. Se houver dúvida sobre metadados → ler `Skills/SKILL-metadata.md`
+
+### Etapa 2 — Ler os arquivos de entrada
+
+- Processar todos os arquivos presentes em `Input/`
+- Identificar e separar cada questão individualmente
+- Determinar o tipo de cada questão (ver árvore de decisão abaixo)
+
+### Etapa 3 — Gerar as notas
+
+- Uma nota `.md` por questão
+- Nomenclatura: `{prefixo}{número com zeros}.md` — ex: `fis047.md`, `fis048.md`
+- Salvar em `Output/`
+- Salvar imagens em `Output/imagens/`
+
+### Etapa 4 — Validar antes de salvar
+
+Rodar o checklist de `Skills/SKILL-checklist.md` em cada nota antes de salvar.
+
+---
+
+## Árvore de decisão
 
 ```
-obsidian-questoes/
-├── AGENT.md
-├── Skill/
-│   ├── SKILL-metadata.md
-│   ├── SKILL-latex.md
-│   └── SKILL-checklist.md
-├── input/
-└── output/
-    └── imagens/
+Questão identificada
+│
+├─ Tem alternativas (a, b, c...)? ──→ OBJETIVA
+│    └─ tipo: objetiva
+│    └─ gabarito: letra (A/B/C/D/E)
+│
+└─ Sem alternativas / pede "calcule", "determine", "explique"? ──→ DISCURSIVA
+     └─ tipo: discursiva
+     └─ gabarito: resposta resumida ou ""
+     └─ Adicionar 3–4 linhas de underscores após enunciado ou após cada sub-item
+     └─ NUNCA usar <br> — não funciona no .docx exportado pelo Enhancing Export
 ```
 
-## Skills — carregar antes de processar
-
-Os arquivos de skill estão na página/pasta `Skill/`.
-
-| Tarefa | Carregar |
-|--------|----------|
-| Converter questões (padrão) | `Skill/SKILL-latex.md` + `Skill/SKILL-checklist.md` |
-| Corrigir metadados | `Skill/SKILL-metadata.md` |
-| Revisar notas existentes | `Skill/SKILL-checklist.md` |
+```
+Questão tem imagem/figura?
+│
+├─ SIM ──→ Extrair e salvar em output/imagens/
+│    └─ Nome: {id}.png (ex: fis047.png)
+│    └─ Múltiplas: {id}_1.png, {id}_2.png...
+│    └─ Referência no corpo: ![[01 - Sources/imagens/{id}.png]]
+│    └─ Inserir na posição exata em que aparece no original
+│
+└─ NÃO ──→ Sem bloco de imagem
+```
 
 ---
 
@@ -47,7 +101,7 @@ Os arquivos de skill estão na página/pasta `Skill/`.
 
 ```markdown
 ---
-id: fis001
+id: fis047
 disciplina: Fisica
 topico:
   - "[[Mecanica]]"
@@ -64,7 +118,6 @@ resolucao_link: ""
 selecionada: false
 ---
 
----
 1. (ENEM - 2024) Enunciado completo da questão.
 
 a) Alternativa a
@@ -74,30 +127,10 @@ b) Alternativa b
 c) Alternativa c
 ```
 
----
-
-## Pesquisa de informações — REGRA OBRIGATÓRIA
-
-Quando não encontrar qualquer metadado no documento, pesquisar na internet antes de deixar vazio. Prioridade:
-
-1. Informação explícita no documento
-2. Pesquisa na internet (questoesdevestibulares.com.br, sites das bancas, etc.)
-3. Deixar `""` — **último recurso**
-
-NUNCA inventar. Se não encontrar, deixar vazio e informar ao usuário.
-
----
-
-## Questões discursivas
-
-Identificar se é discursiva (sem alternativas, pede "calcule", "determine", "explique", tem sub-itens abertos).
-
-Usar 3–4 linhas de underscores escapados após o enunciado (sem sub-itens) ou após **cada** sub-item (com sub-itens). Isso garante linhas de escrita visíveis no Word após exportação pelo Enhancing Export.
-
-**Padrão de linha:** `\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_`
+### Questão discursiva com sub-itens
 
 ```markdown
-1. (FUVEST - 2023) Enunciado...
+1. (FUVEST - 2023) Enunciado da questão.
 
 a) Calcule a força de atrito.
 
@@ -116,13 +149,16 @@ b) Determine a aceleração.
 \_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
 ```
 
-> `\_` é necessário para escapar o underscore e evitar itálico no Obsidian.
+> `\_` escapa o underscore para evitar itálico no Obsidian.
 
 ---
 
-## Imagens
+## Regra de pesquisa — OBRIGATÓRIA
 
-- Nome = nome da nota: `fis001.png`
-- Múltiplas: `fis001_1.png`, `fis001_2.png`
-- Referência: `![[01 - Sources/imagens/fis001.png]]`
-- Inserir na posição exata onde aparecem no original
+Quando qualquer metadado não estiver explícito no documento:
+
+1. **Primeiro:** buscar no próprio documento (cabeçalho, rodapé, contexto)
+2. **Segundo:** pesquisar na internet, sites das bancas
+3. **Último recurso:** deixar `""` e informar o usuário
+
+**NUNCA inventar metadados.** Se não encontrar após pesquisa, deixar vazio e avisar.

@@ -1,34 +1,81 @@
+---
+name: metadata-obsidian
+description: >
+  Schema completo de metadados (frontmatter YAML) para notas de questões do
+  Obsidian. Carregar quando houver dúvida sobre campos obrigatórios, formato
+  de wikilinks, valores permitidos ou hierarquia topico/conteudo/assunto.
+  Também usar quando revisar ou corrigir frontmatter de notas existentes.
+---
+
 # SKILL — Metadados
 
-## Schema
+## Schema completo
 
-| Campo | Regra |
-|-------|-------|
-| `id` | Mesmo nome do arquivo sem extensão |
-| `disciplina` | Sem acento: Fisica, Quimica, Biologia, Matematica, Geografia, Historia, Portugues |
-| `topico` | Lista YAML. Tema amplo. Sem acentos. `- "[[Nome]]"` |
-| `conteudo` | Lista YAML. Tema intermediário. Sem acentos. `- "[[Nome]]"` |
-| `assunto` | Lista YAML. Tema específico. Sem acentos. `- "[[Nome]]"` |
-| `banca` | Wikilink: `"[[ENEM]]"` |
-| `ano` | Número: `2024` ou texto: `"2025/2"` |
-| `tipo` | `objetiva` ou `discursiva` |
-| `dificuldade` | `"[[facil]]"`, `"[[media]]"` ou `"[[dificil]]"` |
-| `gabarito` | Letra (objetiva) ou resposta resumida (discursiva) |
-| `resolucao_link` | Sempre `""` |
-| `selecionada` | Sempre `false` |
+| Campo | Tipo | Regra |
+|-------|------|-------|
+| `id` | string | Mesmo nome do arquivo sem extensão |
+| `disciplina` | string | Sem acento: `Fisica`, `Quimica`, `Biologia`, `Matematica`, `Geografia`, `Historia`, `Portugues`, etc |
+| `topico` | lista YAML | Tema amplo. Sem acentos. `- "[[Nome]]"` |
+| `conteudo` | lista YAML | Tema intermediário. Sem acentos. `- "[[Nome]]"` |
+| `assunto` | lista YAML | Tema específico. Sem acentos. `- "[[Nome]]"` |
+| `banca` | wikilink | `"[[ENEM]]"`, `"[[FUVEST]]"`, `"[[UNICAMP]]"` etc. |
+| `ano` | número ou string | `2024` ou `"2025/2"` |
+| `tipo` | string | `objetiva` ou `discursiva` |
+| `dificuldade` | wikilink | `"[[facil]]"`, `"[[media]]"` ou `"[[dificil]]"` |
+| `gabarito` | string | Letra maiúscula (objetiva) ou resposta resumida (discursiva) |
+| `resolucao_link` | string | Sempre `""` |
+| `selecionada` | boolean | Sempre `false` |
+
+---
 
 ## Regras para topico / conteudo / assunto
 
-- SEMPRE listas YAML (com `- `), mesmo com 1 item
-- Valores com aspas e wikilink: `- "[[Nome]]"`
-- NUNCA acentos
-- Múltiplos valores só quando a questão genuinamente exige mais de uma área
-- Hierarquia: topico (amplo) → conteudo (intermediário) → assunto (específico)
+- **SEMPRE listas YAML** (com `- `), mesmo com apenas 1 item
+- **Formato obrigatório:** `- "[[Nome]]"` — com aspas duplas e wikilink
+- **NUNCA usar acentos** nos valores (ex: `Mecanica`, não `Mecânica`)
+- **Múltiplos valores** apenas quando a questão genuinamente exige mais de uma área
+- **Hierarquia:** `topico` (amplo) → `conteudo` (intermediário) → `assunto` (específico)
 
-## Dificuldade
+### Exemplos de hierarquia
+
+| topico | conteudo | assunto |
+|--------|----------|---------|
+| `Mecanica` | `Cinematica` | `Queda Livre` |
+| `Mecanica` | `Dinamica` | `Leis de Newton` |
+| `Eletricidade` | `Eletrostatica` | `Lei de Coulomb` |
+| `Termologia` | `Gases` | `Lei de Boyle` |
+| `Ondulatoria` | `Som` | `Efeito Doppler` |
+
+---
+
+## Critérios de dificuldade
 
 | Nível | Critério |
 |-------|----------|
-| `facil` | Aplicação direta de uma fórmula ou conceito |
-| `media` | Combina 2+ conceitos ou interpreta gráfico/tabela |
-| `dificil` | Raciocínio complexo, múltiplas etapas, conexão entre áreas |
+| `facil` | Aplicação direta de uma fórmula ou definição de conceito |
+| `media` | Combina 2+ conceitos ou requer interpretação de gráfico/tabela |
+| `dificil` | Raciocínio em múltiplas etapas, conexão entre áreas ou alto grau de abstração |
+
+---
+
+## Exemplo completo de frontmatter
+
+```yaml
+---
+id: fis047
+disciplina: Fisica
+topico:
+  - "[[Mecanica]]"
+conteudo:
+  - "[[Dinamica]]"
+assunto:
+  - "[[Leis de Newton]]"
+banca: "[[ENEM]]"
+ano: 2024
+tipo: objetiva
+dificuldade: "[[media]]"
+gabarito: B
+resolucao_link: ""
+selecionada: false
+---
+```
