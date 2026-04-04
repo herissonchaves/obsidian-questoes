@@ -28,7 +28,7 @@ obsidian-questoes/
 
 **Conversão padrão**
 ```
-Processe Input/. Prefixo: fis, começando em 047. Disciplina: Fisica.
+Leia AGENT.MD. Processe Input/. Prefixo: fis, começando em 047. Disciplina: Fisica.
 ```
 
 **Banca/ano não estão no arquivo**
