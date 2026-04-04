@@ -22,11 +22,48 @@ formatação definidas nas Skills de referência.
 - Prefixo e número inicial informados pelo usuário (ex: `fis047`)
 - Disciplina informada pelo usuário (ex: `Fisica`, `Quimica`)
 
+## Ferramenta obrigatória — `construtor.py`
+
+O script `Input/construtor.py` é o extrator universal do projeto.
+**Ele DEVE ser executado ANTES de qualquer processamento manual.**
+
+> **REGRAS INVIOLÁVEIS:**
+> - **NUNCA recriar, sobrescrever ou excluir** `Input/construtor.py`
+> - **NUNCA extrair texto/imagens manualmente** — o script já faz isso
+> - Se o script não existir em `Input/`, avisar o usuário e parar
+
+### Como usar
+
+```bash
+# Processar toda a pasta Input/ (padrão)
+python Input/construtor.py -i Input -o Output --prefixo fis --inicio 47
+
+# Processar um arquivo específico
+python Input/construtor.py --arquivo Input/prova.pdf -o Output --prefixo fis --inicio 47
+
+# Ver ajuda completa
+python Input/construtor.py --help
+```
+
+### O que o script produz
+
+```
+Output/
+├── manifest.json               ← manifesto estruturado (ler este primeiro)
+├── {nome}_extraido.txt          ← texto extraído de cada arquivo de entrada
+└── imagens/
+    ├── {nome}_p1_1.png          ← imagens extraídas de PDFs (com página)
+    └── {nome}_1.jpg             ← imagens extraídas de DOCX
+```
+
+O `manifest.json` contém a config e os dados de cada arquivo processado,
+incluindo texto extraído, lista de imagens com caminhos e páginas de origem.
+
 ## Skills de referência — carregar antes de processar
 
 | Situação | Carregar |
 |----------|----------|
-| Conversão padrão | `Skills/SKILL-latex.md` + `Skill/SKILL-checklist.md` |
+| Conversão padrão | `Skills/SKILL-latex.md` + `Skills/SKILL-checklist.md` |
 | Dúvida sobre metadados | `Skills/SKILL-metadata.md` |
 | Revisão de notas existentes | `Skills/SKILL-checklist.md` |
 
@@ -42,26 +79,36 @@ Se ainda não foram informados, perguntar ao usuário:
 
 Se o usuário já informou na mensagem, não perguntar de novo.
 
-### Etapa 1 — Ler e carregar skills
+### Etapa 1 — Executar `construtor.py`
+
+1. Verificar que `Input/construtor.py` existe
+2. Executar: `python Input/construtor.py -i Input -o Output --prefixo {prefixo} --inicio {numero}`
+3. Confirmar que `Output/manifest.json` foi gerado com sucesso
+4. Ler `Output/manifest.json` para obter os dados extraídos
+
+> **Se o script falhar:** reportar o erro ao usuário e **não** tentar extrair manualmente.
+
+### Etapa 2 — Carregar skills
 
 1. Ler `Skills/SKILL-latex.md` → regras de formatação LaTeX
 2. Ler `Skills/SKILL-checklist.md` → checklist de validação pré-save
 3. Se houver dúvida sobre metadados → ler `Skills/SKILL-metadata.md`
 
-### Etapa 2 — Ler os arquivos de entrada
+### Etapa 3 — Processar o texto extraído
 
-- Processar todos os arquivos presentes em `Input/`
+- Ler os arquivos `*_extraido.txt` gerados pelo `construtor.py`
 - Identificar e separar cada questão individualmente
 - Determinar o tipo de cada questão (ver árvore de decisão abaixo)
+- Mapear imagens extraídas às questões correspondentes (usar `manifest.json`)
 
-### Etapa 3 — Gerar as notas
+### Etapa 4 — Gerar as notas
 
 - Uma nota `.md` por questão
 - Nomenclatura: `{prefixo}{número com zeros}.md` — ex: `fis047.md`, `fis048.md`
 - Salvar em `Output/`
-- Salvar imagens em `Output/imagens/`
+- Renomear imagens de `Output/imagens/` para `{id}.png`, `{id}_1.png` etc.
 
-### Etapa 4 — Validar antes de salvar
+### Etapa 5 — Validar antes de salvar
 
 Rodar o checklist de `Skills/SKILL-checklist.md` em cada nota antes de salvar.
 
@@ -86,8 +133,8 @@ Questão identificada
 ```
 Questão tem imagem/figura?
 │
-├─ SIM ──→ Extrair e salvar em output/imagens/
-│    └─ Nome: {id}.png (ex: fis047.png)
+├─ SIM ──→ Usar imagem já extraída pelo construtor.py em Output/imagens/
+│    └─ Renomear para: {id}.png (ex: fis047.png)
 │    └─ Múltiplas: {id}_1.png, {id}_2.png...
 │    └─ Referência no corpo: ![[01 - Sources/imagens/{id}.png]]
 │    └─ Inserir na posição exata em que aparece no original

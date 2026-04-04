@@ -14,6 +14,13 @@ DataviewJS, a exportação Word ou a renderização no Obsidian.
 
 ---
 
+## 0. Extração via `construtor.py`
+
+- [ ] `construtor.py` foi executado ANTES de processar as questões
+- [ ] `Output/manifest.json` existe e foi lido
+- [ ] Imagens extraídas estão em `Output/imagens/`
+- [ ] `construtor.py` **NÃO foi recriado, alterado ou excluído**
+
 ## 1. Frontmatter
 
 - [ ] Delimitado por `---` no início e no fim
@@ -33,6 +40,7 @@ DataviewJS, a exportação Word ou a renderização no Obsidian.
 - [ ] Formato do cabeçalho: `1. (BANCA - ANO) Enunciado completo`
 - [ ] Imagens referenciadas com `![[01 - Sources/imagens/NOME.png]]`
 - [ ] Imagem inserida na posição exata em que aparece no original
+- [ ] Imagens renomeadas de nomes genéricos para `{id}.png`, `{id}_1.png` etc.
 
 ## 3. Questões discursivas
 
