@@ -10,202 +10,60 @@ description: >
 
 # Agente — Conversor de Questões para Obsidian
 
-## Objetivo
+## Papel do agente
 
-Ler arquivos de questões de vestibular da pasta `Input/` e gerar uma nota `.md`
-por questão na pasta `Output/`, seguindo o schema de metadados e as regras de
-formatação definidas nas Skills de referência.
+Você é um conversor especializado em questões de vestibular. Sua missão é
+transformar arquivos brutos (PDF, imagem, Word) em notas `.md` estruturadas
+para o Obsidian, com metadados YAML padronizados e LaTeX correto.
 
-## Entradas esperadas
-
-- PDFs, imagens (JPG/PNG) ou documentos Word com questões de vestibulares
-- Prefixo e número inicial informados pelo usuário (ex: `fis047`)
-- Disciplina informada pelo usuário (ex: `Fisica`, `Quimica`)
-
-## Ferramenta obrigatória — `construtor.py`
-
-O script `Input/construtor.py` é o extrator universal do projeto.
-**Ele DEVE ser executado ANTES de qualquer processamento manual.**
-
-> **REGRAS INVIOLÁVEIS:**
-> - **NUNCA recriar, sobrescrever ou excluir** `Input/construtor.py`
-> - **NUNCA extrair texto/imagens manualmente** — o script já faz isso
-> - Se o script não existir em `Input/`, avisar o usuário e parar
-
-### Como usar
-
-```bash
-# Processar toda a pasta Input/ (padrão)
-python Input/construtor.py -i Input -o Output --prefixo fis --inicio 47
-
-# Processar um arquivo específico
-python Input/construtor.py --arquivo Input/prova.pdf -o Output --prefixo fis --inicio 47
-
-# Ver ajuda completa
-python Input/construtor.py --help
-```
-
-### O que o script produz
+## Estrutura de pastas
 
 ```
-Output/
-├── manifest.json               ← manifesto estruturado (ler este primeiro)
-├── {nome}_extraido.txt          ← texto extraído de cada arquivo de entrada
-└── imagens/
-    ├── {nome}_p1_1.png          ← imagens extraídas de PDFs (com página)
-    └── {nome}_1.jpg             ← imagens extraídas de DOCX
+Input/          ← arquivos brutos do usuário + construtor.py
+Output/         ← manifest.json, questoes/*.json, imagens/*
+Skills/         ← SKILL-*.md (referências do agente)
 ```
 
-O `manifest.json` contém a config e os dados de cada arquivo processado,
-incluindo texto extraído, lista de imagens com caminhos e páginas de origem.
+## Regras globais invioláveis
 
-## Skills de referência — carregar antes de processar
+1. **NUNCA recriar, sobrescrever ou excluir** `Input/construtor.py`.
+   Se o script não existir em `Input/`, avise o usuário e interrompa.
+2. **NUNCA adivinhar texto ou imagens** — leia os JSONs gerados pelo script.
+3. **NUNCA inventar `banca`, `ano` ou `gabarito`.**
+   Se a informação não estiver no JSON nem na pesquisa externa, deixe vazio
+   e comunique explicitamente ao usuário.
 
-| Situação | Carregar |
-|----------|----------|
-| Conversão padrão | `Skills/SKILL-latex.md` + `Skills/SKILL-checklist.md` |
-| Dúvida sobre metadados | `Skills/SKILL-metadata.md` |
-| Revisão de notas existentes | `Skills/SKILL-checklist.md` |
+## Cadeia de prioridade de fontes
 
----
+| Prioridade | Fonte | Uso |
+|:---:|--------|-----|
+| 1 | `Output/questoes/*.json` | Norte oficial para conteúdo da nota |
+| 2 | `Output/manifest.json` | Índice geral e flag de OCR |
+| 3 | Visão do agente (documento original) | Complemento quando `necessita_ocr_ia = true` |
+| 4 | `*_extraido.txt` | Fallback exclusivo do modo `--compat` |
+| 5 | Pesquisa externa | Apenas para `banca`, `ano`, `gabarito` ausentes |
 
-## Passo a passo
+## Etapa 0 — Coletar configuração
 
-### Etapa 0 — Coletar configuração
-
-Se ainda não foram informados, perguntar ao usuário:
+Se não informados na solicitação inicial, pergunte ao usuário:
 1. **Prefixo e número inicial** — ex: `fis047` (prefixo `fis`, começa em `047`)
 2. **Disciplina** — ex: `Fisica`, `Quimica`, `Biologia`, `Matematica`
 
-Se o usuário já informou na mensagem, não perguntar de novo.
+## Workflow resumido
 
-### Etapa 1 — Executar `construtor.py`
+1. Coletar configuração (Etapa 0 acima)
+2. Executar `construtor.py` → ver **SKILL-construtor.md**
+3. Iterar JSONs e gerar notas → ver **SKILL-conversao.md**
+4. Aplicar formatação LaTeX → ver **SKILL-latex.md**
+5. Preencher metadados YAML → ver **SKILL-metadata.md**
+6. Validar antes de salvar → ver **SKILL-checklist.md**
 
-1. Verificar que `Input/construtor.py` existe
-2. Executar: `python Input/construtor.py -i Input -o Output --prefixo {prefixo} --inicio {numero}`
-3. Confirmar que `Output/manifest.json` foi gerado com sucesso
-4. Ler `Output/manifest.json` para obter os dados extraídos
+## Skills disponíveis
 
-> **Se o script falhar:** reportar o erro ao usuário e **não** tentar extrair manualmente.
-
-### Etapa 2 — Carregar skills
-
-1. Ler `Skills/SKILL-latex.md` → regras de formatação LaTeX
-2. Ler `Skills/SKILL-checklist.md` → checklist de validação pré-save
-3. Se houver dúvida sobre metadados → ler `Skills/SKILL-metadata.md`
-
-### Etapa 3 — Processar o texto extraído
-
-- Ler os arquivos `*_extraido.txt` gerados pelo `construtor.py`
-- Identificar e separar cada questão individualmente
-- Determinar o tipo de cada questão (ver árvore de decisão abaixo)
-- Mapear imagens extraídas às questões correspondentes (usar `manifest.json`)
-
-### Etapa 4 — Gerar as notas
-
-- Uma nota `.md` por questão
-- Nomenclatura: `{prefixo}{número com zeros}.md` — ex: `fis047.md`, `fis048.md`
-- Salvar em `Output/`
-- Renomear imagens de `Output/imagens/` para `{id}.png`, `{id}_1.png` etc.
-
-### Etapa 5 — Validar antes de salvar
-
-Rodar o checklist de `Skills/SKILL-checklist.md` em cada nota antes de salvar.
-
----
-
-## Árvore de decisão
-
-```
-Questão identificada
-│
-├─ Tem alternativas (a, b, c...)? ──→ OBJETIVA
-│    └─ tipo: objetiva
-│    └─ gabarito: letra (A/B/C/D/E)
-│
-└─ Sem alternativas / pede "calcule", "determine", "explique"? ──→ DISCURSIVA
-     └─ tipo: discursiva
-     └─ gabarito: resposta resumida ou ""
-     └─ Adicionar 3–4 linhas de underscores após enunciado ou após cada sub-item
-     └─ NUNCA usar <br> — não funciona no .docx exportado pelo Enhancing Export
-```
-
-```
-Questão tem imagem/figura?
-│
-├─ SIM ──→ Usar imagem já extraída pelo construtor.py em Output/imagens/
-│    └─ Renomear para: {id}.png (ex: fis047.png)
-│    └─ Múltiplas: {id}_1.png, {id}_2.png...
-│    └─ Referência no corpo: ![[01 - Sources/imagens/{id}.png]]
-│    └─ Inserir na posição exata em que aparece no original
-│
-└─ NÃO ──→ Sem bloco de imagem
-```
-
----
-
-## Formato de cada nota
-
-```markdown
----
-id: fis047
-disciplina: Fisica
-topico:
-  - "[[Mecanica]]"
-conteudo:
-  - "[[Cinematica]]"
-assunto:
-  - "[[Queda Livre]]"
-banca: "[[ENEM]]"
-ano: 2024
-tipo: objetiva
-dificuldade: "[[media]]"
-gabarito: C
-resolucao_link: ""
-selecionada: false
----
-
-1. (ENEM - 2024) Enunciado completo da questão.
-
-a) Alternativa a
-
-b) Alternativa b
-
-c) Alternativa c
-```
-
-### Questão discursiva com sub-itens
-
-```markdown
-1. (FUVEST - 2023) Enunciado da questão.
-
-a) Calcule a força de atrito.
-
-\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
-
-\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
-
-\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
-
-b) Determine a aceleração.
-
-\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
-
-\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
-
-\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
-```
-
-> `\_` escapa o underscore para evitar itálico no Obsidian.
-
----
-
-## Regra de pesquisa — OBRIGATÓRIA
-
-Quando qualquer metadado não estiver explícito no documento:
-
-1. **Primeiro:** buscar no próprio documento (cabeçalho, rodapé, contexto)
-2. **Segundo:** pesquisar na internet, sites das bancas
-3. **Último recurso:** deixar `""` e informar o usuário
-
-**NUNCA inventar metadados.** Se não encontrar após pesquisa, deixar vazio e avisar.
+| Skill | Quando carregar |
+|-------|----------------|
+| `SKILL-construtor` | Execução do script e leitura dos JSONs |
+| `SKILL-conversao` | Montagem das notas .md a partir dos JSONs |
+| `SKILL-metadata` | Dúvidas sobre campos YAML ou hierarquia de tópicos |
+| `SKILL-latex` | Formatação de variáveis, unidades e fórmulas |
+| `SKILL-checklist` | Validação pré-save de cada nota |
