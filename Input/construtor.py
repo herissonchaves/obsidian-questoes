@@ -53,26 +53,81 @@ EXT_IMG = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".tiff", ".tif"}
 EXT_TXT = {".txt", ".md", ".csv"}
 IGNORAR = {"construtor.py", "manifest.json", ".ds_store", "thumbs.db", "__pycache__"}
 
+# ── Detector de Início de Questão ─────────────────────────────────────────────
+
+# Regex para alternativas (não confundir com questão)
+RE_ALTERNATIVA = re.compile(r'^[a-eA-E][\)\]\.]\s+')
+
+# Padrão 1: "Questão N" / "Questao N" / "Q N" (isolado ou com texto após)
+RE_QUESTAO_N = re.compile(
+    r'^(?:Quest[aã]o|Q)\s+(0*\d{1,2})(?:[\.\-\)\:\s]|$)',
+    re.IGNORECASE
+)
+
+# Padrão 2: "N." / "N)" / "N-" / "N:" seguido de conteúdo
+# Aceita zeros à esquerda: 01., 03-, etc.
+RE_NUMERO_SEP = re.compile(r'^(0*\d{1,2})[\.\)\-\:]\s+(.*)')
+
+# Padrão 3: "(BANCA)" ou "(BANCA - ANO)" no início da linha (sem número)
+RE_BANCA_INICIO = re.compile(r'^\(([A-Z]{2,10})\s*(?:[-–/]\s*(\d{4}))?\)\s*(.*)')
+
+# Regex auxiliar para detectar marcador de banca em qualquer posição
+RE_BANCA_ANO = re.compile(r'\(\s*([A-Z]{3,8})\s*(?:[-–]\s*(\d{4}))?\s*\)')
+
+
+def detectar_inicio_questao(linha: str):
+    """
+    Testa se uma linha marca o início de uma nova questão.
+    
+    Retorna (numero, banca, ano) ou None.
+    Prioridade: Questão N > N. texto > (BANCA) texto
+    """
+    linha_strip = linha.strip()
+    if not linha_strip:
+        return None
+    
+    # Rejeitar alternativas logo de cara
+    if RE_ALTERNATIVA.match(linha_strip):
+        return None
+    
+    # Padrão 1: "Questão 3", "Questao 03", "Q 1"
+    m = RE_QUESTAO_N.match(linha_strip)
+    if m:
+        numero = m.group(1).lstrip('0') or '0'
+        return (numero, '', '')
+    
+    # Padrão 2: "03- Texto...", "4. (UFRGS) Texto...", "1) Considere..."
+    m = RE_NUMERO_SEP.match(linha_strip)
+    if m:
+        numero = m.group(1).lstrip('0') or '0'
+        resto = m.group(2).strip()
+        
+        # Validação anti-falso-positivo:
+        # Aceitar se: tem marcador de banca, OU texto >= 5 chars
+        # Rejeitar se: texto muito curto e sem banca (provavelmente sub-item)
+        tem_banca = bool(RE_BANCA_ANO.search(resto))
+        if tem_banca or len(resto) >= 5:
+            return (numero, '', '')
+        # Texto curto sem banca — provavelmente sub-item, ignorar
+        return None
+    
+    # Padrão 3: "(UFRGS) Texto...", "(ENEM - 2024) Considere..."
+    m = RE_BANCA_INICIO.match(linha_strip)
+    if m:
+        banca = m.group(1)
+        ano = m.group(2) or ''
+        resto = m.group(3).strip()
+        # Só aceitar se tem texto após a banca (não é um cabeçalho isolado)
+        if len(resto) >= 3:
+            return ('00', banca, ano)
+    
+    return None
+
+
 # ── Segmentador Heurístico ────────────────────────────────────────────────────
 
 class SegmentadorProvas:
     """Extrai fluxo de texto e agrupa em questões estruturadas."""
-    
-    # FIX: regex mais preciso para evitar falsos positivos
-    # Grupo 1: "Questão 01" / "Q 1" — exige fim de linha ou seguido de parêntese/espaço de banca
-    # Grupo 2: "1. " / "01) " — exige que o restante da linha tenha conteúdo substancial (>10 chars)
-    REGEX_Q_FORMAL = re.compile(
-        r'^(?:Questão|QUESTÃO|Q)\s+(0?[1-9]|[1-9][0-9])(?:[\.\-\)]|\s|$)',
-        re.IGNORECASE
-    )
-    REGEX_Q_NUMERAL = re.compile(r'^([1-9][0-9]?)[\.\-\)]\s+(.+)')
-    REGEX_ALT = re.compile(r'^([a-eA-E])[\)\]\.]\s+')
-    
-    # Regex para extração pre-metadados (ex: "(FUVEST - 2024)", "UERJ")
-    REGEX_BANCA_ANO = re.compile(r'\(\s*([A-Z]{3,8})\s*(?:[-–]\s*(\d{4}))?\s*\)')
-
-    # Comprimento mínimo do restante da linha para aceitar match numeral como questão
-    MIN_CONTEUDO_QUESTAO = 10
 
     @classmethod
     def segmentar(cls, texto_completo: str, imagens: list) -> list:
@@ -88,49 +143,35 @@ class SegmentadorProvas:
                     q_atual["enunciado_bruto"].append(linha)
                 continue
             
-            # Tentar match formal: "Questão 1", "Q 01"
-            m_formal = cls.REGEX_Q_FORMAL.match(linha_strip)
-            # Tentar match numeral: "1. Texto..." — só aceita se restante é substancial
-            m_numeral = cls.REGEX_Q_NUMERAL.match(linha_strip)
-            
-            nova_questao = False
-            numero = None
-            
-            if m_formal:
-                nova_questao = True
-                numero = m_formal.group(1).lstrip('0')
-            elif m_numeral:
-                restante = m_numeral.group(2).strip()
-                # FIX: só aceita como questão nova se o restante tem conteúdo real
-                # Evita "2. alternativa..." ser interpretado como questão
-                if len(restante) >= cls.MIN_CONTEUDO_QUESTAO and not cls.REGEX_ALT.match(restante):
-                    nova_questao = True
-                    numero = m_numeral.group(1).lstrip('0')
-            
-            if nova_questao and numero:
+            # Tentar detectar início de nova questão
+            resultado = detectar_inicio_questao(linha_strip)
+            if resultado:
+                numero, banca, ano = resultado
+                
                 # Fechar questão anterior
                 if q_atual:
                     questoes.append(cls._fechar_questao(q_atual, img_refs))
-                    
+                
                 q_atual = {
                     "numero_detectado": numero,
                     "enunciado_bruto": [linha],
                     "alternativas": [],
-                    "banca": "",
-                    "ano": "",
+                    "banca": banca,
+                    "ano": ano,
                     "imagens_ref": [],
                     "em_alternativas": False
                 }
                 
-                # Tentar extrair banca/ano logo na primeira linha
-                m_banca = cls.REGEX_BANCA_ANO.search(linha_strip)
-                if m_banca:
-                    q_atual["banca"] = m_banca.group(1)
-                    if m_banca.group(2):
-                        q_atual["ano"] = m_banca.group(2)
+                # Se não veio banca do detector, tentar extrair da linha
+                if not banca:
+                    m_banca = RE_BANCA_ANO.search(linha_strip)
+                    if m_banca:
+                        q_atual["banca"] = m_banca.group(1)
+                        if m_banca.group(2):
+                            q_atual["ano"] = m_banca.group(2)
                 continue
                 
-            # Se não está em nenhuma questão ainda, fallback para q00
+            # Se não está em nenhuma questão ainda, criar fallback q00
             if not q_atual:
                 q_atual = {
                     "numero_detectado": "00",
@@ -143,7 +184,7 @@ class SegmentadorProvas:
                 }
                 
             # Identificação de alternativas
-            m_alt = cls.REGEX_ALT.match(linha_strip)
+            m_alt = RE_ALTERNATIVA.match(linha_strip)
             if m_alt:
                 q_atual["em_alternativas"] = True
                 letra = m_alt.group(1).upper()
@@ -153,7 +194,6 @@ class SegmentadorProvas:
                 })
             else:
                 if q_atual["em_alternativas"]:
-                    # Se começou alternativas, tentar agrupar linhas extras à última alternativa
                     if q_atual["alternativas"]:
                         q_atual["alternativas"][-1]["texto"] += "\n" + linha_strip
                     else:
@@ -171,7 +211,6 @@ class SegmentadorProvas:
     def _fechar_questao(cls, raw: dict, img_refs: dict) -> dict:
         enunciado_txt = "\n".join(raw["enunciado_bruto"]).strip()
         
-        # Encontrar quais imagens foram usadas no enunciado/alternativas
         imgs_usadas = []
         for img_nome, img_data in img_refs.items():
             if f"[IMG:{img_nome}]" in enunciado_txt:
@@ -198,7 +237,7 @@ class SegmentadorProvas:
 # ── Extração Imagem ───────────────────────────────────────────────────────────
 
 def recortar_imagem(origem: Path, destino: Path) -> str:
-    """Tenta recortar a imagem. Retorna 'recortada', 'copiada' ou 'falha'."""
+    """Tenta recortar a imagem. Retorna 'recortada', 'copiada' ou 'falhou'."""
     try:
         from PIL import Image
         import numpy as np
@@ -241,8 +280,6 @@ def recortar_imagem(origem: Path, destino: Path) -> str:
             height = max_block[1] - max_block[0]
             
             if height < 120:
-                # Provavelmente apenas texto, sem diagrama visual relevante
-                # FIX: ainda assim copia a imagem original como fallback
                 shutil.copy2(str(origem), str(destino))
                 return "copiada"
 
@@ -265,17 +302,15 @@ def recortar_imagem(origem: Path, destino: Path) -> str:
             cropped.save(destino)
             return "recortada"
         else:
-            # Nenhum bloco encontrado — copia original
             shutil.copy2(str(origem), str(destino))
             return "copiada"
     except Exception as e:
         print(f"  [Erro Oculto] Recorte falhou {origem.name}: {e}")
-        # FIX: em caso de erro, copia o original em vez de descartar
         try:
             shutil.copy2(str(origem), str(destino))
             return "copiada"
         except Exception:
-            return "falha"
+            return "falhou"
 
 # ── Motores Universais de Extração ────────────────────────────────────────────
 
@@ -284,42 +319,19 @@ def extrair_pdf(caminho: Path, dir_imgs: Path) -> dict:
     paginas_texto = []
     imagens = []
     img_count = 0
-    necessita_ocr = False
-    total_texto_chars = 0
+    texto_total_len = 0
 
     for num_pag in range(len(doc)):
         page = doc.load_page(num_pag)
         
-        # FIX: intercalar texto e imagens usando blocos ordenados geometricamente
-        blocks = page.get_text("dict")["blocks"]
-        # Ordenar por posição vertical (y0), depois horizontal (x0)
-        blocks.sort(key=lambda b: (b["bbox"][1], b["bbox"][0]))
+        # Blocos ordenados por Y para intercalar texto e imagens
+        blocks = page.get_text("blocks")
+        blocks.sort(key=lambda b: (b[1], b[0]))
         
-        partes_pagina = []
-        
-        for b in blocks:
-            if b["type"] == 0:  # Bloco de texto
-                linhas_bloco = []
-                for line in b.get("lines", []):
-                    spans_text = "".join(span["text"] for span in line.get("spans", []))
-                    if spans_text.strip():
-                        linhas_bloco.append(spans_text)
-                if linhas_bloco:
-                    texto_bloco = "\n".join(linhas_bloco)
-                    partes_pagina.append(texto_bloco)
-                    total_texto_chars += len(texto_bloco)
-                    
-            elif b["type"] == 1:  # Bloco de imagem
-                # Imagem embutida no bloco — extrair via xref se disponível
-                img_count += 1
-                xref = b.get("image", None)
-                if xref:
-                    # Tentar extrair diretamente do bloco
-                    pass  # Imagens de bloco nem sempre têm xref acessível
-                    
-        # Extrair imagens via get_images (mais confiável) e inserir marcadores
-        # após o texto da página, mas antes da próxima página
-        for img_info in page.get_images(full=True):
+        # Extrair imagens da página
+        img_list = page.get_images(full=True)
+        page_images_extracted = []
+        for img_info in img_list:
             xref = img_info[0]
             try:
                 base_image = doc.extract_image(xref)
@@ -332,28 +344,52 @@ def extrair_pdf(caminho: Path, dir_imgs: Path) -> dict:
             destino = dir_imgs / nome_img
             destino.write_bytes(img_bytes)
             
-            # FIX: inserir marcador de imagem intercalado com o texto
-            partes_pagina.append(f"[IMG:{nome_img}]")
             imagens.append({
                 "arquivo": nome_img,
                 "pagina": num_pag + 1,
                 "caminho": str(destino),
             })
+            page_images_extracted.append(nome_img)
+        
+        # Reconstruir texto com imagens intercaladas via posição geométrica
+        if page_images_extracted:
+            texto_blocks = [(b[1], "text", b[4]) for b in blocks if b[6] == 0]
+            img_block_positions = [(b[1], "img", None) for b in blocks if b[6] == 1]
             
-        paginas_texto.append("\n".join(partes_pagina))
+            # Associar imagens extraídas aos blocos de imagem por ordem
+            for i, (y, tipo, _) in enumerate(img_block_positions):
+                if i < len(page_images_extracted):
+                    img_block_positions[i] = (y, "img", page_images_extracted[i])
+            
+            all_elements = texto_blocks + [p for p in img_block_positions if p[2]]
+            all_elements.sort(key=lambda e: e[0])
+            
+            texto_pag = ""
+            for _, tipo, conteudo in all_elements:
+                if tipo == "text":
+                    texto_pag += conteudo + "\n"
+                else:
+                    texto_pag += f"\n[IMG:{conteudo}]\n"
+        else:
+            texto_pag = ""
+            for b in blocks:
+                if b[6] == 0:
+                    texto_pag += b[4] + "\n"
+        
+        texto_total_len += len(texto_pag.strip())
+        paginas_texto.append(texto_pag)
 
     doc.close()
-    
-    # FIX: decisão de OCR baseada em proporção texto/imagens
-    if total_texto_chars < 50 and img_count > 0:
-        necessita_ocr = True
-    
     texto_total = "\n\n".join(paginas_texto)
     questoes = SegmentadorProvas.segmentar(texto_total, imagens)
     
+    tem_texto_suficiente = texto_total_len > 100
+    necessita_ocr = not tem_texto_suficiente and img_count > 0
+
     return {
         "tipo_fonte": "pdf",
         "total_paginas": len(paginas_texto),
+        "tem_ocr_local": tem_texto_suficiente,
         "necessita_ocr_ia": necessita_ocr,
         "texto_bruto": texto_total,
         "questoes": questoes,
@@ -413,7 +449,6 @@ def extrair_docx(caminho: Path, dir_imgs: Path) -> dict:
             if linha.strip():
                 partes_texto.append(linha)
         elif tag == "tbl":
-            # Tabela simples
             for tr in elem.findall(qn("w:tr")):
                 celulas = []
                 for tc in tr.findall(qn("w:tc")):
@@ -427,6 +462,7 @@ def extrair_docx(caminho: Path, dir_imgs: Path) -> dict:
     return {
         "tipo_fonte": "docx",
         "total_paginas": None,
+        "tem_ocr_local": len(texto_total.strip()) > 100,
         "necessita_ocr_ia": False,
         "texto_bruto": texto_total,
         "questoes": questoes,
@@ -434,40 +470,27 @@ def extrair_docx(caminho: Path, dir_imgs: Path) -> dict:
     }
 
 def extrair_imagem(caminho: Path, dir_imgs: Path) -> dict:
+    """Imagens avulsas: copiar/recortar e marcar para processamento direto VLM."""
     destino = dir_imgs / caminho.name
-    
-    # FIX: sempre inclui a imagem na lista, independente do resultado do recorte
-    resultado = "falha"
     if caminho.resolve() != destino.resolve():
-        resultado = recortar_imagem(caminho, destino)
-    else:
-        resultado = "copiada"  # já está no destino
-        
-    imagens_lista = []
-    if resultado != "falha":
-        imagens_lista.append({
-            "arquivo": caminho.name,
-            "pagina": None,
-            "caminho": str(destino),
-        })
+        recortar_imagem(caminho, destino)
 
-    # Em imagens, dependemos do OCR delegado pelo VLM
+    imagem_existe = destino.exists()
+
+    # Imagens avulsas não geram JSON granular — vão direto pro VLM
     return {
         "tipo_fonte": "imagem",
         "total_paginas": None,
+        "tem_ocr_local": False,
         "necessita_ocr_ia": True,
-        "texto_bruto": f"Necessita OCR da IA.\n[IMAGEM: {caminho.name}]",
-        "questoes": [{
-            "numero_detectado": "00",
-            "tipo_detectado": "incerto",
-            "banca": "",
-            "ano": "",
-            "enunciado": f"Processamento via visão do agente LLM pendente. [IMG:{caminho.name}]" if imagens_lista else "Processamento de texto via agente.",
-            "alternativas": [],
-            "imagens": imagens_lista,
-            "confianca_segmentacao": "baixa"
-        }],
-        "imagens": imagens_lista,
+        "processamento_direto_vlm": True,
+        "texto_bruto": "",
+        "questoes": [],
+        "imagens": [{
+            "arquivo": caminho.name,
+            "pagina": None,
+            "caminho": str(destino),
+        }] if imagem_existe else [],
     }
 
 def extrair_texto(caminho: Path) -> dict:
@@ -476,6 +499,7 @@ def extrair_texto(caminho: Path) -> dict:
     return {
         "tipo_fonte": "texto",
         "total_paginas": None,
+        "tem_ocr_local": True,
         "necessita_ocr_ia": False,
         "texto_bruto": texto,
         "questoes": questoes,
@@ -528,23 +552,34 @@ def main():
         dados = processar_arquivo(arq, dir_imgs)
         if not dados: continue
         
-        # FIX: tem_ocr reflete se houve extração textual significativa
-        texto_extraido = dados.get("texto_bruto", "")
-        tem_texto_util = len(texto_extraido.strip()) > 100
+        # Imagens avulsas: entrada leve no manifest, sem JSON granular
+        if dados.get("processamento_direto_vlm"):
+            id_gen = f"{args.prefixo}{counter_global:03d}"
+            global_manifest["arquivos"].append({
+                "arquivo_origem": arq.name,
+                "tipo_fonte": "imagem",
+                "processamento_direto_vlm": True,
+                "necessita_ocr_ia": True,
+                "id_reservado": id_gen,
+                "imagens": [img["arquivo"] for img in dados["imagens"]],
+                "status_extracao": "ok",
+            })
+            counter_global += 1
+            if args.debug:
+                print(f"  ✓ Imagem avulsa → VLM direto (ID reservado: {id_gen})")
+            continue
         
-        # Manifest Level Data
         mini_manifest = {
             "arquivo_origem": arq.name,
             "tipo_fonte": dados["tipo_fonte"],
             "total_paginas": dados["total_paginas"],
-            "tem_ocr": tem_texto_util,
+            "tem_ocr_local": dados["tem_ocr_local"],
             "necessita_ocr_ia": dados["necessita_ocr_ia"],
             "questoes_detectadas": len(dados["questoes"]),
             "status_extracao": "ok",
             "lista_questoes": []
         }
         
-        # Salvar legado compat?
         if args.compat and not args.compacto:
             caminho_txt = dir_saida / f"{arq.stem}_extraido.txt"
             caminho_txt.write_text(dados["texto_bruto"], encoding="utf-8")
@@ -552,7 +587,6 @@ def main():
         for q in dados["questoes"]:
             id_gen = f"{args.prefixo}{counter_global:03d}"
             
-            # Dados que vão pro manifesto leve
             mini_manifest["lista_questoes"].append({
                 "id_local": id_gen,
                 "numero_detectado": q["numero_detectado"],
@@ -561,7 +595,6 @@ def main():
                 "arquivo_detalhe": f"questoes/{arq.stem}_{id_gen}.json"
             })
             
-            # FIX: removido texto_bruto_curto redundante (enunciado já está presente)
             q_json = {
                 "id_local": id_gen,
                 "arquivo_origem": arq.name,
@@ -583,7 +616,6 @@ def main():
             caminho_q_json.write_text(json.dumps(q_json, ensure_ascii=False, indent=2), encoding="utf-8")
             counter_global += 1
 
-        # Fallback text se não for modo compacto explícito
         if not args.compacto:
              mini_manifest["texto_bruto"] = dados["texto_bruto"][:1500] + "..."
 
@@ -593,7 +625,7 @@ def main():
 
     # Salvar Master Manifest
     (dir_saida / "manifest.json").write_text(json.dumps(global_manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"\nFinalizado! Custo preditivo de tokens drasticamente reduzido. IDs alocados até {counter_global - 1}.")
+    print(f"\nFinalizado! IDs alocados até {counter_global - 1}.")
 
 if __name__ == "__main__":
     main()

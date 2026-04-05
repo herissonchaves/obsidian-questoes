@@ -1,63 +1,85 @@
 ---
-name: construtor-questoes
+name: construtor-referencia
 description: >
-  Referência de uso do script construtor.py — extrator e segmentador de
-  questões. Carregar sempre que for executar o construtor.py, interpretar
-  seus outputs (manifest.json, JSONs granulares, imagens) ou diagnosticar
-  erros de extração. Também usar ao decidir entre modo compacto e compat.
+  Referência de uso do script construtor.py — o extrator e segmentador de
+  questões. Carregar quando precisar executar o script, interpretar o
+  manifest.json, entender a estrutura dos JSONs granulares ou diagnosticar
+  problemas de extração. Também usar quando o agente precisar decidir entre
+  modos de operação (compacto vs compat).
 ---
 
-# SKILL — construtor.py
+# SKILL — Referência do `construtor.py`
 
-## Objetivo
+## O que é
 
-O `construtor.py` é o núcleo de extração. Ele converte documentos brutos
-(PDF, DOCX, imagens, texto) em JSONs estruturados prontos para o agente
-montar as notas do Obsidian. **Deve ser executado ANTES de qualquer leitura
-manual dos documentos.**
+Script Python que extrai texto e imagens de documentos brutos (PDF, DOCX,
+imagens) e os segmenta automaticamente em JSONs granulares por questão.
+Projetado para minimizar o consumo de tokens do agente.
 
-## Comando padrão
+## Regras invioláveis
+
+- **NUNCA recriar, sobrescrever ou excluir** `Input/construtor.py`
+- Se o script não existir em `Input/`, avise o usuário e interrompa
+- Sempre executar o script ANTES de tentar ler documentos brutos
+
+## Execução
+
+### Modo padrão (recomendado)
 
 ```bash
 python3 Input/construtor.py -i Input -o Output --prefixo fis --inicio 47 --compacto
 ```
 
-## Flags disponíveis
+### Flags disponíveis
 
 | Flag | Efeito |
 |------|--------|
-| `--compacto` | **Modo prioritário.** Manifest leve sem texto bruto embutido |
-| `--compat` | Gera `*_extraido.txt` legado (fallback para PDFs ilegíveis) |
-| `--debug` | Saídas detalhadas no console |
+| `-i`, `--input` | Pasta de entrada (default: `Input`) |
+| `-o`, `--output` | Pasta de saída (default: `Output`) |
+| `--prefixo` | Prefixo dos IDs gerados (ex: `fis`, `qui`) |
+| `--inicio` | Número inicial da sequência (ex: `47` → `fis047`) |
+| `--compacto` | **Prioritário.** Manifest leve sem texto bruto |
+| `--compat` | Gera `*_extraido.txt` legado. Usar apenas como fallback |
+| `--debug` | Saída detalhada no console |
 
-> **Regra:** use `--compacto` sempre. Use `--compat` apenas se a segmentação
-> JSON falhar completamente no PDF.
+### Escolha do modo
 
-## Estrutura de output
+- **Sempre usar `--compacto`** em operação normal
+- Usar `--compat` **somente** se o PDF for completamente ilegível para a segmentação JSON
+- Nunca combinar `--compacto` com `--compat`
+
+## Estrutura de saída
 
 ```
 Output/
-├── manifest.json                  ← índice leve
+├── manifest.json                  ← índice leve de navegação
 ├── questoes/
-│   ├── nomeoriginal_fis047.json   ← JSON granular por questão
-│   └── nomeoriginal_fis048.json
+│   ├── {stem}_{id}.json           ← JSON granular por questão
+│   └── ...
 └── imagens/
-    ├── nomeoriginal_p1_1.png      ← nome técnico da extração
-    └── nomeoriginal_2.png
+    ├── {stem}_p{pag}_{n}.{ext}    ← imagens de PDF (com página)
+    ├── {stem}_{n}.{ext}           ← imagens de DOCX
+    └── {nome_original}.{ext}      ← imagens avulsas (recortadas)
 ```
 
-## manifest.json — estrutura
+## Esquema do `manifest.json`
 
 ```json
 {
-  "config": { "prefixo": "fis", "numero_inicial": 47, "modo": "compacto" },
+  "config": {
+    "prefixo": "fis",
+    "numero_inicial": 47,
+    "modo": "compacto"
+  },
   "arquivos": [
     {
       "arquivo_origem": "prova.pdf",
       "tipo_fonte": "pdf",
       "total_paginas": 4,
+      "tem_ocr_local": true,
       "necessita_ocr_ia": false,
-      "questoes_detectadas": 5,
+      "questoes_detectadas": 3,
+      "status_extracao": "ok",
       "lista_questoes": [
         {
           "id_local": "fis047",
@@ -72,12 +94,38 @@ Output/
 }
 ```
 
-**Campos-chave do manifest:**
-- `necessita_ocr_ia`: se `true`, o texto extraído é insuficiente — ative visão
-- `arquivo_detalhe`: caminho relativo ao JSON granular da questão
-- `confianca_segmentacao`: `"alta"` (match de regex) ou `"baixa"` (fallback)
+### Campos-chave do manifest
 
-## JSON granular da questão — estrutura
+| Campo | Significado |
+|-------|-------------|
+| `necessita_ocr_ia` | `true` = texto extraído insuficiente, agente deve usar visão |
+| `confianca_segmentacao` | `alta` = regex identificou número; `baixa` = questão genérica (q00) |
+| `arquivo_detalhe` | Caminho relativo ao JSON granular da questão |
+| `tem_ocr_local` | `true` = extração textual local foi bem-sucedida |
+| `processamento_direto_vlm` | `true` = imagem avulsa, sem JSON granular (ver abaixo) |
+
+### Imagens avulsas (processamento direto VLM)
+
+Imagens soltas (PNG/JPG enviados pelo usuário) **não geram JSON granular**.
+O manifest registra uma entrada leve:
+
+```json
+{
+  "arquivo_origem": "foto_questao.png",
+  "tipo_fonte": "imagem",
+  "processamento_direto_vlm": true,
+  "necessita_ocr_ia": true,
+  "id_reservado": "fis047",
+  "imagens": ["foto_questao.png"],
+  "status_extracao": "ok"
+}
+```
+
+O agente deve usar sua visão nativa diretamente sobre o arquivo em
+`Output/imagens/` e montar a nota a partir do que "enxerga", sem procurar
+JSON em `Output/questoes/`.
+
+## Esquema do JSON granular (`questoes/*.json`)
 
 ```json
 {
@@ -85,36 +133,52 @@ Output/
   "arquivo_origem": "prova.pdf",
   "numero_detectado": "1",
   "tipo_detectado": "objetiva",
-  "enunciado": "Texto completo do enunciado com [IMG:nome.png] se houver",
+  "enunciado": "Texto completo com marcadores [IMG:nome.png]",
   "alternativas": [
-    { "letra": "A", "texto": "Texto da alternativa A" },
-    { "letra": "B", "texto": "Texto da alternativa B" }
+    {"letra": "A", "texto": "Texto da alternativa"}
   ],
   "imagens": [
-    { "arquivo": "prova_p1_1.png", "pagina": 1, "caminho": "Output/imagens/prova_p1_1.png" }
+    {"arquivo": "prova_p1_1.png", "pagina": 1, "caminho": "Output/imagens/prova_p1_1.png"}
   ],
+  "marcadores_fluxo": "Encontrado fluxo normal",
   "confianca_segmentacao": "alta",
-  "metadados_extraidos": { "banca": "ENEM", "ano": "2024", "disciplina": "" }
+  "metadados_extraidos": {
+    "banca": "ENEM",
+    "ano": "2024",
+    "disciplina": ""
+  }
 }
 ```
 
-**Campos-chave do JSON granular:**
-- `enunciado`: texto principal — fonte oficial para o corpo da nota
-- `alternativas`: lista vazia `[]` indica questão discursiva
-- `imagens`: lista vazia `[]` indica ausência de figuras — **não insira** `![[...]]`
-- `metadados_extraidos`: pré-extração heurística de banca/ano (pode estar vazio)
+### Como interpretar os campos
 
-## Marcadores de imagem
+| Campo | Significado para o agente |
+|-------|--------------------------|
+| `enunciado` | Texto principal. Pode conter `[IMG:nome.png]` indicando posição de figuras |
+| `alternativas` | Lista vazia `[]` → questão discursiva |
+| `imagens` | Lista vazia `[]` → sem figuras; NÃO inserir `![[...]]` na nota |
+| `marcadores_fluxo` | `"Dependência visual do VLM"` → complementar com visão do agente |
+| `metadados_extraidos` | Pré-extração via regex; pode estar vazio — não confiar cegamente |
 
-O script insere `[IMG:nome.png]` no texto para indicar onde uma figura aparece.
-Use esses marcadores como guia de posição ao inserir `![[01 - Sources/imagens/{id}.png]]`
-na nota final. Se não houver marcador claro, use julgamento conservador.
+## Padrões de numeração suportados
+
+O detector reconhece os seguintes formatos de início de questão:
+
+| Padrão | Exemplo |
+|--------|---------|
+| `Questão N` / `Questao N` / `Q N` | `Questão 3.`, `Questao 01`, `Q 7` |
+| `N.` / `N)` / `N-` / `N:` + texto | `1. Um corpo...`, `03- Um bloco...`, `5) Calcule...` |
+| `(BANCA)` + texto | `(UFRGS) Uma partícula...` |
+| `(BANCA - ANO)` + texto | `(ENEM - 2024) Considere...` |
+
+Zeros à esquerda são aceitos e removidos (`03` → `3`).
+Linhas curtas após número (< 5 chars, sem banca) são ignoradas como sub-itens.
 
 ## Diagnóstico de problemas
 
 | Sintoma | Causa provável | Ação |
 |---------|---------------|------|
-| `manifest.json` não gerado | Erro de dependência ou path | Verificar log e reinstalar deps |
-| `questoes_detectadas: 0` | Texto do PDF é pura imagem | Reexecutar com `--compat`; usar visão |
-| `confianca_segmentacao: baixa` | Regex não encontrou padrão de questão | Revisar visualmente o documento |
-| `necessita_ocr_ia: true` | Pouco texto extraído vs imagens | Ativar visão do agente no original |
+| `manifest.json` não gerado | Erro de dependência ou pasta inexistente | Verificar logs, instalar deps |
+| Todas as questões com `q00` | Regex não reconheceu numeração | Verificar formato do PDF original |
+| `necessita_ocr_ia: true` | PDF é scan/imagem sem texto | Usar visão do agente sobre o original |
+| Imagens ausentes | Recorte descartou (< 120px altura) | Verificar original manualmente |

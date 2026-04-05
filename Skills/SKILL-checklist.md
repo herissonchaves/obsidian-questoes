@@ -20,6 +20,7 @@ DataviewJS, a exportação Word ou a renderização no Obsidian.
 - [ ] `Output/manifest.json` existe e foi lido
 - [ ] Imagens extraídas estão em `Output/imagens/`
 - [ ] `construtor.py` **NÃO foi recriado, alterado ou excluído**
+- [] As questões .md foram geradas em `Output/questoes/`
 
 ## 1. Frontmatter
 
